@@ -30,6 +30,9 @@ import (
 const defaultTimeout = 30 * time.Second
 
 const (
+	defaultRESTRunBaseURL = "https://api.policy2.net/run"
+	defaultRPCAddress     = "shuttle.proxy.rlwy.net:27179"
+
 	policyServiceMethod = "/policy.v1.PolicyService/RunPolicy"
 	flowServiceMethod   = "/policy.v1.FlowService/RunFlow"
 )
@@ -95,20 +98,22 @@ func NewExecutionClient(cfg Config) (*ExecutionClient, error) {
 
 	switch kind {
 	case TransportKindREST:
-		if strings.TrimSpace(cfg.Transport.BaseURL) == "" {
-			return nil, &Error{Kind: ErrorKindConfiguration, Message: "transport.base_url is required for REST"}
-		}
 		httpClient := cfg.Transport.Client
 		if httpClient == nil {
 			httpClient = &http.Client{Timeout: timeout}
 		}
-		client.baseURL = strings.TrimRight(cfg.Transport.BaseURL, "/")
+		baseURL := strings.TrimSpace(cfg.Transport.BaseURL)
+		if baseURL == "" {
+			baseURL = defaultRESTRunBaseURL
+		}
+		client.baseURL = strings.TrimRight(baseURL, "/")
 		client.client = httpClient
 	case TransportKindRPC:
-		if strings.TrimSpace(cfg.Transport.Address) == "" {
-			return nil, &Error{Kind: ErrorKindConfiguration, Message: "transport.address is required for RPC"}
+		address := strings.TrimSpace(cfg.Transport.Address)
+		if address == "" {
+			address = defaultRPCAddress
 		}
-		client.address = cfg.Transport.Address
+		client.address = address
 		client.useTLS = cfg.Transport.TLS
 	default:
 		return nil, &Error{Kind: ErrorKindConfiguration, Message: fmt.Sprintf("unsupported transport kind %q", kind)}
@@ -205,7 +210,7 @@ func (c *ExecutionClient) executePolicyRPC(ctx context.Context, req ExecutePolic
 	}
 
 	request := dynamicpb.NewMessage(runPolicyDesc)
-	if req.Reference == ReferenceBase {
+	if effectiveReference(req.Reference) == ReferenceBase {
 		request.Set(runPolicyDesc.Fields().ByName("base_id"), protoreflect.ValueOfString(req.ID))
 	} else {
 		request.Set(runPolicyDesc.Fields().ByName("policy_id"), protoreflect.ValueOfString(req.ID))
@@ -231,7 +236,7 @@ func (c *ExecutionClient) executeFlowRPC(ctx context.Context, req ExecuteFlowReq
 	}
 
 	request := dynamicpb.NewMessage(runFlowDesc)
-	if req.Reference == ReferenceBase {
+	if effectiveReference(req.Reference) == ReferenceBase {
 		request.Set(runFlowDesc.Fields().ByName("base_id"), protoreflect.ValueOfString(req.ID))
 	} else {
 		request.Set(runFlowDesc.Fields().ByName("flow_id"), protoreflect.ValueOfString(req.ID))
@@ -315,17 +320,24 @@ func (c *ExecutionClient) rpcConn(ctx context.Context) (*grpc.ClientConn, error)
 }
 
 func policyPath(id string, ref Reference) string {
-	if ref == ReferenceBase {
-		return fmt.Sprintf("/run/policy/%s", id)
+	if effectiveReference(ref) == ReferenceVersion {
+		return fmt.Sprintf("/policy_version/%s", id)
 	}
-	return fmt.Sprintf("/run/policy_version/%s", id)
+	return fmt.Sprintf("/policy/%s", id)
 }
 
 func flowPath(id string, ref Reference) string {
-	if ref == ReferenceBase {
-		return fmt.Sprintf("/run/flow/%s", id)
+	if effectiveReference(ref) == ReferenceVersion {
+		return fmt.Sprintf("/flow_version/%s", id)
 	}
-	return fmt.Sprintf("/run/flow_version/%s", id)
+	return fmt.Sprintf("/flow/%s", id)
+}
+
+func effectiveReference(ref Reference) Reference {
+	if ref == ReferenceVersion {
+		return ReferenceVersion
+	}
+	return ReferenceBase
 }
 
 func mapHTTPError(status int, body string) error {

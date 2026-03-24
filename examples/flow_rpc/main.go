@@ -13,7 +13,7 @@ func main() {
 		APIKey: os.Getenv("POLICY_API_KEY"),
 		Transport: policysdk.TransportConfig{
 			Kind:    policysdk.TransportKindRPC,
-			Address: getenv("POLICY_RPC_ADDRESS", "127.0.0.1:8081"),
+			Address: getenv("POLICY_RPC_ADDRESS", ""),
 			TLS:     false,
 		},
 	})
