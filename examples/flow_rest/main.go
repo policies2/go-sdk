@@ -13,7 +13,7 @@ func main() {
 		APIKey: os.Getenv("POLICY_API_KEY"),
 		Transport: policysdk.TransportConfig{
 			Kind:    policysdk.TransportKindREST,
-			BaseURL: getenv("POLICY_API_URL", "https://api.policy2.net"),
+			BaseURL: getenv("POLICY_API_URL", ""),
 		},
 	})
 	if err != nil {

@@ -42,7 +42,7 @@ func TestNewExecutionClientRequiresAPIKey(t *testing.T) {
 
 func TestExecutePolicyRESTVersion(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/run/policy_version/policy-123" {
+		if r.URL.Path != "/policy_version/policy-123" {
 			t.Fatalf("unexpected path %q", r.URL.Path)
 		}
 		if r.Header.Get("X-API-Key") != "pk_test" {
@@ -87,7 +87,7 @@ func TestExecutePolicyRESTVersion(t *testing.T) {
 
 func TestExecuteFlowRESTBase(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/run/flow/flow-123" {
+		if r.URL.Path != "/flow/flow-123" {
 			t.Fatalf("unexpected path %q", r.URL.Path)
 		}
 		w.Header().Set("Content-Type", "application/json")
@@ -302,13 +302,66 @@ func TestExecuteFlowRPCVersion(t *testing.T) {
 	}
 
 	response, err := client.ExecuteFlow(context.Background(), ExecuteFlowRequest{
-		ID:   "flow-123",
-		Data: map[string]any{"user": map[string]any{"age": 25}},
+		ID:        "flow-123",
+		Reference: ReferenceVersion,
+		Data:      map[string]any{"user": map[string]any{"age": 25}},
 	})
 	if err != nil {
 		t.Fatalf("expected success, got %v", err)
 	}
 	if response.Kind != "flow" {
+		t.Fatalf("unexpected response %#v", response)
+	}
+}
+
+func TestExecutePolicyRPCDefaultsToBaseReference(t *testing.T) {
+	runPolicyDesc, runResponseDesc, err := rpcPolicyDescriptors()
+	if err != nil {
+		t.Fatalf("failed to load descriptors: %v", err)
+	}
+	runFlowDesc, flowResponseDesc, err := rpcFlowDescriptors()
+	if err != nil {
+		t.Fatalf("failed to load descriptors: %v", err)
+	}
+
+	server, address := startGRPCTestServer(t, runPolicyDesc, runFlowDesc, runResponseDesc, flowResponseDesc, func(ctx context.Context, method string, req proto.Message) (proto.Message, error) {
+		if method != "RunPolicy" {
+			t.Fatalf("unexpected method %s", method)
+		}
+		msg := req.(*dynamicpb.Message)
+		if got := msg.Get(runPolicyDesc.Fields().ByName("base_id")).String(); got != "base-123" {
+			t.Fatalf("unexpected base_id %q", got)
+		}
+		if got := msg.Get(runPolicyDesc.Fields().ByName("policy_id")).String(); got != "" {
+			t.Fatalf("unexpected policy_id %q", got)
+		}
+
+		response := dynamicpb.NewMessage(runResponseDesc)
+		response.Set(runResponseDesc.Fields().ByName("result"), protoreflect.ValueOfBool(true))
+		return response, nil
+	})
+	defer server.Stop()
+
+	client, err := NewExecutionClient(Config{
+		APIKey: "pk_test",
+		Transport: TransportConfig{
+			Kind:    TransportKindRPC,
+			Address: address,
+		},
+		Timeout: time.Second * 5,
+	})
+	if err != nil {
+		t.Fatalf("failed to create client: %v", err)
+	}
+
+	response, err := client.ExecutePolicy(context.Background(), ExecutePolicyRequest{
+		ID:   "base-123",
+		Data: map[string]any{"user": map[string]any{"age": 25}},
+	})
+	if err != nil {
+		t.Fatalf("expected success, got %v", err)
+	}
+	if !response.Result || response.Kind != "policy" {
 		t.Fatalf("unexpected response %#v", response)
 	}
 }
@@ -434,11 +487,53 @@ func mustStruct(t *testing.T, value map[string]any) *structpb.Struct {
 }
 
 func TestPathHelpers(t *testing.T) {
-	if got := policyPath("base-123", ReferenceBase); got != "/run/policy/base-123" {
+	if got := policyPath("implicit-base-123", ""); got != "/policy/implicit-base-123" {
+		t.Fatalf("unexpected default policy path %s", got)
+	}
+	if got := policyPath("base-123", ReferenceBase); got != "/policy/base-123" {
 		t.Fatalf("unexpected policy path %s", got)
 	}
-	if got := flowPath("flow-123", ReferenceVersion); got != "/run/flow_version/flow-123" {
+	if got := policyPath("policy-123", ReferenceVersion); got != "/policy_version/policy-123" {
+		t.Fatalf("unexpected policy path %s", got)
+	}
+	if got := flowPath("implicit-base-123", ""); got != "/flow/implicit-base-123" {
+		t.Fatalf("unexpected default flow path %s", got)
+	}
+	if got := flowPath("flow-123", ReferenceBase); got != "/flow/flow-123" {
 		t.Fatalf("unexpected flow path %s", got)
+	}
+	if got := flowPath("flow-123", ReferenceVersion); got != "/flow_version/flow-123" {
+		t.Fatalf("unexpected flow path %s", got)
+	}
+}
+
+func TestNewExecutionClientUsesDefaultRESTBaseURL(t *testing.T) {
+	client, err := NewExecutionClient(Config{
+		APIKey: "pk_test",
+		Transport: TransportConfig{
+			Kind: TransportKindREST,
+		},
+	})
+	if err != nil {
+		t.Fatalf("failed to create client: %v", err)
+	}
+	if client.baseURL != defaultRESTRunBaseURL {
+		t.Fatalf("unexpected default rest baseURL %q", client.baseURL)
+	}
+}
+
+func TestNewExecutionClientUsesDefaultRPCAddress(t *testing.T) {
+	client, err := NewExecutionClient(Config{
+		APIKey: "pk_test",
+		Transport: TransportConfig{
+			Kind: TransportKindRPC,
+		},
+	})
+	if err != nil {
+		t.Fatalf("failed to create client: %v", err)
+	}
+	if client.address != defaultRPCAddress {
+		t.Fatalf("unexpected default rpc address %q", client.address)
 	}
 }
 

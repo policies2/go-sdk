@@ -34,8 +34,7 @@ func main() {
 	client, err := policysdk.NewExecutionClient(policysdk.Config{
 		APIKey: os.Getenv("POLICY_API_KEY"),
 		Transport: policysdk.TransportConfig{
-			Kind:    policysdk.TransportKindREST,
-			BaseURL: "https://api.policy2.net",
+			Kind: policysdk.TransportKindREST,
 		},
 	})
 	if err != nil {
@@ -56,6 +55,10 @@ func main() {
 	fmt.Println(result.Result)
 }
 ```
+
+REST defaults to `https://api.policy2.net/run` when `Transport.BaseURL` is empty.
+
+gRPC defaults to `shuttle.proxy.rlwy.net:27179` when `Transport.Address` is empty.
 
 ## Examples
 
