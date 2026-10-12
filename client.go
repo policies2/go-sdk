@@ -9,6 +9,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 
@@ -105,6 +106,9 @@ func NewExecutionClient(cfg Config) (*ExecutionClient, error) {
 		baseURL := strings.TrimSpace(cfg.Transport.BaseURL)
 		if baseURL == "" {
 			baseURL = defaultRESTRunBaseURL
+		}
+		if err := validateBaseURL(baseURL); err != nil {
+			return nil, err
 		}
 		client.baseURL = strings.TrimRight(baseURL, "/")
 		client.client = httpClient
@@ -337,7 +341,43 @@ func isLoopbackAddress(address string) bool {
 	return ip != nil && ip.IsLoopback()
 }
 
+// validateBaseURL requires https unless the host is loopback: the API key is
+// sent on every request.
+func validateBaseURL(baseURL string) error {
+	parsed, err := url.Parse(baseURL)
+	if err != nil || parsed.Host == "" {
+		return &Error{Kind: ErrorKindConfiguration, Message: fmt.Sprintf("invalid base url %q", baseURL)}
+	}
+	switch {
+	case parsed.Scheme == "https":
+		return nil
+	case parsed.Scheme == "http" && isLoopbackAddress(parsed.Host):
+		return nil
+	case parsed.Scheme == "http":
+		return &Error{Kind: ErrorKindConfiguration, Message: fmt.Sprintf("refusing plaintext http to %s: the api key would be sent unencrypted; use https (or a loopback address for local development)", baseURL)}
+	default:
+		return &Error{Kind: ErrorKindConfiguration, Message: fmt.Sprintf("unsupported base url scheme %q", parsed.Scheme)}
+	}
+}
+
+// encodePathSegment percent-encodes everything but RFC 3986 unreserved
+// characters, including '.', so an id like "../admin" or ".." can't change the
+// request target (url.PathEscape leaves dots alone).
+func encodePathSegment(segment string) string {
+	var b strings.Builder
+	for i := 0; i < len(segment); i++ {
+		c := segment[i]
+		if ('A' <= c && c <= 'Z') || ('a' <= c && c <= 'z') || ('0' <= c && c <= '9') || c == '-' || c == '_' || c == '~' {
+			b.WriteByte(c)
+			continue
+		}
+		fmt.Fprintf(&b, "%%%02X", c)
+	}
+	return b.String()
+}
+
 func policyPath(id string, ref Reference) string {
+	id = encodePathSegment(id)
 	if effectiveReference(ref) == ReferenceVersion {
 		return fmt.Sprintf("/policy_version/%s", id)
 	}
@@ -345,6 +385,7 @@ func policyPath(id string, ref Reference) string {
 }
 
 func flowPath(id string, ref Reference) string {
+	id = encodePathSegment(id)
 	if effectiveReference(ref) == ReferenceVersion {
 		return fmt.Sprintf("/flow_version/%s", id)
 	}

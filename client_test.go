@@ -619,3 +619,30 @@ func TestMapHTTPErrorDefaultsMessage(t *testing.T) {
 		t.Fatalf("unexpected message %q", sdkErr.Message)
 	}
 }
+
+func TestPathsEncodeIDs(t *testing.T) {
+	cases := map[string]string{
+		policyPath("../admin", ReferenceBase):         "/policy/%2E%2E%2Fadmin",
+		policyPath("..", ReferenceBase):               "/policy/%2E%2E",
+		flowPath("x?y=1#", ReferenceBase):             "/flow/x%3Fy%3D1%23",
+		policyPath("3b7d4b2a-9aa0", ReferenceVersion): "/policy_version/3b7d4b2a-9aa0",
+	}
+	for got, want := range cases {
+		if got != want {
+			t.Fatalf("got %q, want %q", got, want)
+		}
+	}
+}
+
+func TestNewExecutionClientRequiresHTTPSBaseURL(t *testing.T) {
+	for _, ok := range []string{"https://api.policy2.net/run", "http://localhost:8080", "http://127.0.0.1:8080", "http://[::1]:8080"} {
+		if _, err := NewExecutionClient(Config{APIKey: "pk_test", Transport: TransportConfig{BaseURL: ok}}); err != nil {
+			t.Fatalf("%s: %v", ok, err)
+		}
+	}
+	for _, bad := range []string{"http://api.policy2.net/run", "ftp://api.policy2.net", "not a url"} {
+		if _, err := NewExecutionClient(Config{APIKey: "pk_test", Transport: TransportConfig{BaseURL: bad}}); err == nil {
+			t.Fatalf("%s: expected error", bad)
+		}
+	}
+}
