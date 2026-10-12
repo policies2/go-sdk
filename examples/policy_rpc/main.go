@@ -12,8 +12,10 @@ func main() {
 	client, err := policysdk.NewExecutionClient(policysdk.Config{
 		APIKey: os.Getenv("POLICY_API_KEY"),
 		Transport: policysdk.TransportConfig{
-			Kind:    policysdk.TransportKindRPC,
-			Address: getenv("POLICY_RPC_ADDRESS", ""),
+			Kind: policysdk.TransportKindRPC,
+			// gRPC has no hosted endpoint yet; this targets a locally running API.
+			// Plaintext is only allowed to loopback addresses; set TLS: true otherwise.
+			Address: getenv("POLICY_RPC_ADDRESS", "localhost:8082"),
 			TLS:     false,
 		},
 	})

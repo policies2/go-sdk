@@ -3,6 +3,7 @@ package policysdk
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -522,18 +523,47 @@ func TestNewExecutionClientUsesDefaultRESTBaseURL(t *testing.T) {
 	}
 }
 
-func TestNewExecutionClientUsesDefaultRPCAddress(t *testing.T) {
-	client, err := NewExecutionClient(Config{
-		APIKey: "pk_test",
-		Transport: TransportConfig{
-			Kind: TransportKindRPC,
-		},
+func TestNewExecutionClientRequiresRPCAddress(t *testing.T) {
+	_, err := NewExecutionClient(Config{
+		APIKey:    "pk_test",
+		Transport: TransportConfig{Kind: TransportKindRPC},
 	})
-	if err != nil {
-		t.Fatalf("failed to create client: %v", err)
+	var sdkErr *Error
+	if !errors.As(err, &sdkErr) || sdkErr.Kind != ErrorKindConfiguration {
+		t.Fatalf("expected configuration error, got %v", err)
 	}
-	if client.address != defaultRPCAddress {
-		t.Fatalf("unexpected default rpc address %q", client.address)
+}
+
+func TestNewExecutionClientRefusesPlaintextRPCToRemoteHosts(t *testing.T) {
+	for _, address := range []string{"shuttle.proxy.rlwy.net:27179", "rpc.policy2.net:443", "10.0.0.5:8082"} {
+		_, err := NewExecutionClient(Config{
+			APIKey:    "pk_test",
+			Transport: TransportConfig{Kind: TransportKindRPC, Address: address},
+		})
+		if err == nil {
+			t.Fatalf("%s: plaintext rpc should be refused", address)
+		}
+		if _, err := NewExecutionClient(Config{
+			APIKey:    "pk_test",
+			Transport: TransportConfig{Kind: TransportKindRPC, Address: address, TLS: true},
+		}); err != nil {
+			t.Fatalf("%s: tls rpc should be allowed: %v", address, err)
+		}
+	}
+}
+
+func TestNewExecutionClientAllowsPlaintextRPCToLoopback(t *testing.T) {
+	for _, address := range []string{"localhost:8082", "127.0.0.1:8082", "[::1]:8082"} {
+		client, err := NewExecutionClient(Config{
+			APIKey:    "pk_test",
+			Transport: TransportConfig{Kind: TransportKindRPC, Address: address},
+		})
+		if err != nil {
+			t.Fatalf("%s: %v", address, err)
+		}
+		if client.useTLS {
+			t.Fatalf("%s: expected plaintext", address)
+		}
 	}
 }
 

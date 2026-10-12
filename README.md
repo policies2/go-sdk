@@ -58,7 +58,7 @@ func main() {
 
 REST defaults to `https://api.policy2.net/run` when `Transport.BaseURL` is empty.
 
-gRPC defaults to `shuttle.proxy.rlwy.net:27179` when `Transport.Address` is empty.
+gRPC (`TransportKindRPC`) has no hosted endpoint yet, so `Transport.Address` is required. The SDK refuses plaintext gRPC to anything but a loopback address (`localhost`, `127.0.0.1`, `::1`), because the API key travels in request metadata: set `Transport.TLS: true` for any remote server.
 
 ## Examples
 

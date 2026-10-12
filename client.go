@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"strings"
 	"time"
@@ -31,7 +32,6 @@ const defaultTimeout = 30 * time.Second
 
 const (
 	defaultRESTRunBaseURL = "https://api.policy2.net/run"
-	defaultRPCAddress     = "shuttle.proxy.rlwy.net:27179"
 
 	policyServiceMethod = "/policy.v1.PolicyService/RunPolicy"
 	flowServiceMethod   = "/policy.v1.FlowService/RunFlow"
@@ -109,9 +109,14 @@ func NewExecutionClient(cfg Config) (*ExecutionClient, error) {
 		client.baseURL = strings.TrimRight(baseURL, "/")
 		client.client = httpClient
 	case TransportKindRPC:
+		// gRPC has no hosted endpoint yet (the hosted API is REST-only), and the
+		// API key travels in metadata, so plaintext is only allowed to loopback.
 		address := strings.TrimSpace(cfg.Transport.Address)
 		if address == "" {
-			address = defaultRPCAddress
+			return nil, &Error{Kind: ErrorKindConfiguration, Message: "rpc transport requires an address; the hosted API is REST-only (TransportKindREST)"}
+		}
+		if !cfg.Transport.TLS && !isLoopbackAddress(address) {
+			return nil, &Error{Kind: ErrorKindConfiguration, Message: fmt.Sprintf("refusing plaintext rpc to %s: the api key would be sent unencrypted; set TLS: true (or use a loopback address for local development)", address)}
 		}
 		client.address = address
 		client.useTLS = cfg.Transport.TLS
@@ -317,6 +322,19 @@ func (c *ExecutionClient) rpcConn(ctx context.Context) (*grpc.ClientConn, error)
 
 	c.conn = conn
 	return conn, nil
+}
+
+func isLoopbackAddress(address string) bool {
+	host := address
+	if h, _, err := net.SplitHostPort(address); err == nil {
+		host = h
+	}
+	host = strings.Trim(host, "[]")
+	if strings.EqualFold(host, "localhost") {
+		return true
+	}
+	ip := net.ParseIP(host)
+	return ip != nil && ip.IsLoopback()
 }
 
 func policyPath(id string, ref Reference) string {
